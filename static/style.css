@@ -1,0 +1,47 @@
+body {
+    font-family: Arial, sans-serif;
+    padding: 20px;
+}
+
+.wide-input {
+    width: 300px;
+    padding: 8px;
+    font-size: 16px;
+}
+
+input, button {
+    padding: 8px;
+    font-size: 16px;
+}
+
+.positive {
+    color: green;
+}
+
+.negative {
+    color: red;
+}
+
+ul {
+    list-style-type: none;
+    padding: 0;
+}
+
+li {
+    padding: 10px;
+    font-size: 18px;
+}
+
+.delete-btn {
+    background: none;
+    border: none;
+    color: red;
+    font-weight: bold;
+    font-size: 16px;
+    cursor: pointer;
+    margin-left: 10px;
+}
+
+.delete-btn:hover {
+    color: darkred;
+}
