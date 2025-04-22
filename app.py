@@ -1,9 +1,9 @@
-from flask import Flask, render_template, redirect, request, url_for, session
+from flask import Flask, render_template, redirect, request, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
-import yfinance as yf
-from models import db, User, Portfolio
 from werkzeug.security import generate_password_hash, check_password_hash
+import yfinance as yf
+from models import db, User, Portfolio, Cash
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_secret_key'
@@ -21,66 +21,214 @@ with app.app_context():
 def load_user(user_id):
     return User.query.get(int(user_id))
 
+def deposit_cash(amount_chf):
+    if amount_chf <= 0:
+        return
+    existing = Cash.query.filter_by(user_id=current_user.id, currency="CHF").first()
+    if existing:
+        existing.amount += amount_chf
+    else:
+        new_cash = Cash(user_id=current_user.id, currency="CHF", amount=amount_chf)
+        db.session.add(new_cash)
+    db.session.commit()
+
+def subtract_cash(amount_chf):
+    if amount_chf <= 0:
+        return False
+
+    cash = Cash.query.filter_by(user_id=current_user.id, currency="CHF").first()
+    if not cash or cash.amount < amount_chf:
+        return False  # Not enough cash
+    cash.amount -= amount_chf
+    db.session.commit()
+    return True
+
 @app.route('/', methods=['GET', 'POST'])
 def index():
     trades = []
+    totals = {"market_value": 0, "cost": 0, "realized_gain": 0, "day_gain": 0, "unrealized_gain": 0}
 
     if current_user.is_authenticated:
-        symbols = [p.symbol for p in Portfolio.query.filter_by(user_id=current_user.id).all()]
         if request.method == 'POST':
             symbol = request.form.get('symbol').upper()
-            if symbol and symbol not in symbols:
-                new_entry = Portfolio(symbol=symbol, user_id=current_user.id)
-                db.session.add(new_entry)
-                db.session.commit()
-                symbols.append(symbol)
-    else:
-        if 'guest_symbols' not in session:
-            session['guest_symbols'] = []
+            shares = float(request.form.get('shares'))
+            avg_cost = float(request.form.get('avg_cost'))
 
-        if request.method == 'POST':
-            symbol = request.form.get('symbol').upper()
-            if symbol and symbol not in session['guest_symbols']:
-                session['guest_symbols'].append(symbol)
-                session.modified = True
+            total_cost = shares * avg_cost
 
-        symbols = session.get('guest_symbols', [])
+            # Subtract CHF from cash balance
+            if not subtract_cash(total_cost):
+                flash("Not enough CHF cash to buy this stock.")
+                return redirect(url_for('index'))
 
-    for symbol in symbols:
-        try:
-            stock = yf.Ticker(symbol)
-            data = stock.history(period="2d")
-            if len(data) >= 2:
-                current_price = data["Close"].iloc[-1]
-                prev_close = data["Close"].iloc[-2]
-                day_change = ((current_price - prev_close) / prev_close) * 100
+            existing = Portfolio.query.filter_by(symbol=symbol, user_id=current_user.id).first()
+            if existing:
+                total_shares = existing.shares + shares
+                new_avg_cost = ((existing.avg_cost * existing.shares) + (avg_cost * shares)) / total_shares
+                existing.shares = total_shares
+                existing.avg_cost = new_avg_cost
             else:
-                current_price = 0
-                day_change = 0
+                db.session.add(Portfolio(symbol=symbol, shares=shares, avg_cost=avg_cost, user_id=current_user.id))
 
-            trades.append({
-                "symbol": symbol,
-                "course": round(current_price, 2),
-                "day_change": round(day_change, 2)
+            db.session.commit()
+
+
+        positions = Portfolio.query.filter_by(user_id=current_user.id).all()
+
+        for pos in positions:
+            try:
+                data = yf.Ticker(pos.symbol).history(period="2d")
+                current_price = float(data["Close"].iloc[-1])
+                prev_price = float(data["Close"].iloc[-2])
+
+                market_value = pos.shares * current_price
+                cost_value = pos.shares * pos.avg_cost
+                day_gain = pos.shares * (current_price - prev_price)
+                unrealized_gain = market_value - cost_value
+
+                trades.append({
+                    "id": pos.id,
+                    "symbol": pos.symbol,
+                    "shares": pos.shares,
+                    "avg_cost": round(pos.avg_cost, 2),
+                    "current_price": round(current_price, 2),
+                    "market_value": round(market_value, 2),
+                    "total_cost": round(cost_value, 2),
+                    "day_gain_percent": round(((current_price - prev_price) / prev_price) * 100, 2),
+                    "day_gain": round(day_gain, 2),
+                    "unrealized_gain_percent": round(((market_value - cost_value) / cost_value) * 100, 2) if cost_value > 0 else 0,
+                    "unrealized_gain": round(unrealized_gain, 2),
+                    "realized_gain_percent": round(pos.realized_gain_percent, 2),
+                    "realized_gain": round(pos.realized_gain, 2)
+                })
+
+                totals["market_value"] += market_value
+                totals["cost"] += cost_value
+                totals["day_gain"] += day_gain
+                totals["unrealized_gain"] += unrealized_gain
+                totals["realized_gain"] += pos.realized_gain
+
+            except:
+                continue
+
+        # Fetch and convert user cash holdings
+        cash_entries = Cash.query.filter_by(user_id=current_user.id).all()
+        cash_balances = []
+        total_cash_chf = 0
+
+        for c in cash_entries:
+            amount = c.amount
+            currency = c.currency
+
+            if currency != "CHF":
+                try:
+                    ticker = f"{currency}CHF=X"
+                    fx_data = yf.Ticker(ticker).history(period="1d")
+                    rate = fx_data["Close"].iloc[-1]
+                    converted = amount * rate
+                except:
+                    rate = 1
+                    converted = 0
+            else:
+                rate = 1
+                converted = amount
+
+            cash_balances.append({
+                "currency": currency,
+                "amount": round(amount, 2),
+                "rate": round(rate, 4),
+                "converted": round(converted, 2)
             })
-        except:
-            continue
 
-    return render_template('index.html', trades=trades)
+            total_cash_chf += converted
+
+        totals["market_value"] += total_cash_chf
+
+        total_change_percent = (totals["unrealized_gain"] / totals["cost"]) * 100 if totals["cost"] > 0 else 0
+        total_day_percent = (totals["day_gain"] / totals["market_value"]) * 100 if totals["market_value"] > 0 else 0
+
+        return render_template('index.html', trades=trades,
+            total_market_value=round(totals["market_value"], 2),
+            total_unrealized_gain=round(totals["unrealized_gain"], 2),
+            total_unrealized_gain_percent=round(total_change_percent, 2),
+            total_realized_gain=round(totals["realized_gain"], 2),
+            total_day_gain=round(totals["day_gain"], 2),
+            total_day_gain_percent=round(total_day_percent, 2),
+            cash_balances=cash_balances
+        )
+
+    return render_template('index.html', trades=[])
+
+@app.route('/sell/<int:position_id>', methods=['POST'])
+@login_required
+def sell(position_id):
+    pos = Portfolio.query.filter_by(id=position_id, user_id=current_user.id).first()
+    if not pos:
+        flash("Position not found.")
+        return redirect(url_for('index'))
+
+    sell_shares = float(request.form.get('sell_shares'))
+    sell_price = float(request.form.get('sell_price'))
+    if sell_shares > pos.shares:
+        flash("You can't sell more than you own.")
+        return redirect(url_for('index'))
+
+    gain = (sell_price - pos.avg_cost) * sell_shares
+    total_sale = sell_price * sell_shares
+    deposit_cash(total_sale)
+
+    gain_percent = ((sell_price - pos.avg_cost) / pos.avg_cost * 100) if pos.avg_cost > 0 else 0
+
+    pos.realized_gain += gain
+    pos.realized_gain_percent += gain_percent * (sell_shares / pos.shares)
+    pos.shares -= sell_shares
+    if pos.shares <= 0:
+        db.session.delete(pos)
+    db.session.commit()
+    return redirect(url_for('index'))
+
+def get_exchange_rate(from_currency, to_currency="CHF"):
+    if from_currency == to_currency:
+        return 1.0
+    try:
+        ticker = f"{from_currency}{to_currency}=X"
+        data = yf.Ticker(ticker).history(period="1d")
+        return float(data["Close"].iloc[-1])
+    except:
+        return None
+
+
+@app.route('/add_cash', methods=['POST'])
+@login_required
+def add_cash():
+    amount = float(request.form.get('cash_amount'))
+    currency = request.form.get('cash_currency')
+
+    if amount <= 0 or not currency:
+        flash("Invalid cash deposit.")
+        return redirect(url_for('index'))
+
+    existing = Cash.query.filter_by(user_id=current_user.id, currency=currency).first()
+    if existing:
+        existing.amount += amount
+    else:
+        db.session.add(Cash(user_id=current_user.id, currency=currency, amount=amount))
+
+    db.session.commit()
+    flash(f"{amount} {currency} added to your cash holdings.")
+    return redirect(url_for('index'))
+
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-
         user = User.query.filter_by(username=username).first()
         if user and check_password_hash(user.password, password):
             login_user(user)
             return redirect(url_for('index'))
-        else:
-            return 'Invalid credentials'
-
+        flash("Invalid credentials")
     return render_template('login.html')
 
 @app.route('/register', methods=['GET', 'POST'])
@@ -88,38 +236,15 @@ def register():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-
-        # check if user already exists
-        existing_user = User.query.filter_by(username=username).first()
-        if existing_user:
-            return "This username has already been used. Please choose another one."
-
-        hashed_pw = generate_password_hash(password, method='pbkdf2:sha256')
-        new_user = User(username=username, password=hashed_pw)
-        db.session.add(new_user)
-        db.session.commit()
-        login_user(new_user)
-        return redirect(url_for('index'))
-
-    return render_template('register.html')
-
-
-@app.route('/delete/<symbol>', methods=['POST'])
-def delete(symbol):
-    symbol = symbol.upper()
-
-    if current_user.is_authenticated:
-        entry = Portfolio.query.filter_by(symbol=symbol, user_id=current_user.id).first()
-        if entry:
-            db.session.delete(entry)
+        if User.query.filter_by(username=username).first():
+            flash("Username already exists.")
+        else:
+            user = User(username=username, password=generate_password_hash(password, method='pbkdf2:sha256'))
+            db.session.add(user)
             db.session.commit()
-    else:
-        if 'guest_symbols' in session:
-            session['guest_symbols'] = [s for s in session['guest_symbols'] if s != symbol]
-            session.modified = True
-
-    return redirect(url_for('index'))
-
+            login_user(user)
+            return redirect(url_for('index'))
+    return render_template('register.html')
 
 @app.route('/logout')
 @login_required
@@ -128,5 +253,4 @@ def logout():
     return redirect(url_for('index'))
 
 if __name__ == '__main__':
-    print("Starting the app...")
     app.run(debug=True)

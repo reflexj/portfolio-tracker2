@@ -1,37 +1,214 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Portfolio Tracker</title>
+    <title>My Portfolio</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <meta http-equiv="refresh" content="30">
+    <script>
+    
+    window.toggleSellForm = function(button) {
+        const id = button.getAttribute("data-id");
+        const form = document.getElementById('sell-form-' + id);
+        const arrow = button.querySelector('.arrow');
+        const marketPrice = button.getAttribute("data-price");
+
+        if (form.style.display === 'block') {
+            form.style.display = 'none';
+            arrow.style.transform = 'rotate(0deg)';
+        } else {
+            form.style.display = 'block';
+            arrow.style.transform = 'rotate(180deg)';
+            // Auto-fill market price as default
+            const priceInput = document.getElementById('sell_price_' + id);
+            if (priceInput) {
+                priceInput.value = parseFloat(marketPrice);
+            }
+        }
+    }
+
+
+    function closeSell(id) {
+        document.getElementById('sell-form-' + id).style.display = 'none';
+    }
+    
+    window.onload = function () {
+        window.prefillBuyForm = function (symbol, price) {
+            document.querySelector('input[name=symbol]').value = symbol;
+            document.querySelector('input[name=avg_cost]').value = price;
+            document.querySelector('input[name=shares]').focus();
+        }
+    }
+
+
+
+
+
+    </script>
 </head>
 <body>
-    <h1>Live Stock Tracker</h1>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <ul class="flashes">
+        {% for category, message in messages %}
+          <li class="{{ category }}">{{ message }}</li>
+        {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
 
     {% if current_user.is_authenticated %}
+        <h1>📈 Portfolio Overview</h1>
         <p>Logged in as {{ current_user.username }} | <a href="{{ url_for('logout') }}">Logout</a></p>
-    {% else %}
-        <p><a href="{{ url_for('login') }}">Login</a> | <a href="{{ url_for('register') }}">Register</a></p>
-    {% endif %}
 
-    <form method="POST">
-        <input type="text" name="symbol" placeholder="Enter stock symbol (e.g. AAPL)" class="wide-input" required>
-        <button type="submit">Add</button>
-    </form>
+        {% if trades|length == 0 %}
+            <h2 style="margin-top: 40px;">➕ Add Position</h2>
+        {% endif %}
 
-    <ul>
-        {% for trade in trades %}
-            <li>
-                <strong>{{ trade.symbol }}</strong>: {{ trade.course }} CHF |
-                <span class="{{ 'positive' if trade.day_change >= 0 else 'negative' }}">
-                    {{ trade.day_change }}%
-                </span>
-                <form action="{{ url_for('delete', symbol=trade.symbol) }}" method="POST" style="display:inline;">
-                    <button type="submit" class="delete-btn">✖</button>
+        <form method="POST" style="margin-bottom: 20px;">
+            <input type="text" name="symbol" placeholder="Symbol (e.g. AAPL)" required>
+            <input type="number" step="0.0001" name="shares" placeholder="Shares" required>
+            <input type="number" step="0.01" name="avg_cost" placeholder="Average Cost (CHF)" required>
+            <button type="submit">Add Position</button>
+        </form>
+
+        {% if trades|length > 0 %}
+            <div class="totals-row big-value">
+                <span class="label">Total Portfolio Value:</span>
+                <span class="value">{{ total_market_value }} CHF</span>
+                <span class="{{ 'positive' if total_unrealized_gain_percent >= 0 else 'negative' }}">({{ total_unrealized_gain_percent }}%)</span>
+            </div>
+        
+            <div class="totals-row">
+                <span class="label">Unrealized Gain:</span>
+                <span class="{{ 'positive' if total_unrealized_gain >= 0 else 'negative' }}">{{ total_unrealized_gain }} CHF</span>
+            </div>
+            <div class="totals-row">
+                <span class="label">Realized Gain:</span>
+                <span class="{{ 'positive' if total_realized_gain >= 0 else 'negative' }}">{{ total_realized_gain }} CHF</span>
+            </div>
+            <div class="totals-row">
+                <span class="label">Realized Gain (CHF):</span>
+                <span class="{{ 'positive' if total_realized_gain >= 0 else 'negative' }}">{{ total_realized_gain }} CHF</span>
+            </div>            
+            <div class="totals-row">
+                <span class="label">Day Change (Today):</span>
+                <span class="{{ 'positive' if total_day_gain >= 0 else 'negative' }}">{{ total_day_gain }} CHF</span>
+                <span class="{{ 'positive' if total_day_gain_percent >= 0 else 'negative' }}">({{ total_day_gain_percent }}%)</span>
+            </div>
+
+            <table>
+                <tr>
+                    <th>Symbol</th>
+                    <th>Shares</th>
+                    <th>Avg Cost</th>
+                    <th>Last Price</th>
+                    <th>Total Cost</th>
+                    <th>Market Value</th>
+                    <th>Day Gain<br>UNRL</th>
+                    <th>Day Gain<br>UNRL</th>
+                    <th>Tot Gain<br>UNRL</th>
+                    <th>Tot Gain<br>UNRL</th>
+                    <th>Realized<br>Gain</th>
+                    <th>Realized<br>Gain</th>
+                    <th>Sell</th>
+                    <th>Buy</th>
+                </tr>
+                {% for trade in trades %}
+                <tr>
+                    <td>{{ trade.symbol }}</td>
+                    <td>{{ trade.shares }}</td>
+                    <td>{{ trade.avg_cost }}</td>
+                    <td>{{ trade.current_price }}</td>
+                    <td>{{ trade.total_cost }}</td>
+                    <td>{{ trade.market_value }}</td>
+                    <td class="{{ 'positive' if trade.day_gain_percent >= 0 else 'negative' }}">{{ trade.day_gain_percent }}%</td>
+                    <td class="{{ 'positive' if trade.day_gain >= 0 else 'negative' }}">{{ trade.day_gain }}CHF</td>
+                    <td class="{{ 'positive' if trade.unrealized_gain_percent >= 0 else 'negative' }}">{{ trade.unrealized_gain_percent }}%</td>
+                    <td class="{{ 'positive' if trade.unrealized_gain >= 0 else 'negative' }}">{{ trade.unrealized_gain }}CHF</td>
+                    <td class="{{ 'positive' if trade.realized_gain_percent >= 0 else 'negative' }}">{{ trade.realized_gain_percent }}%</td>
+                    <td class="{{ 'positive' if trade.realized_gain >= 0 else 'negative' }}">{{ trade.realized_gain }}CHF</td>
+                    <td>
+                        <button 
+                            type="button" 
+                            class="sell-btn"
+                            data-id="{{ trade.id }}"
+                            data-price="{{ trade.current_price }}"
+                            onclick="toggleSellForm(this)">
+                            Sell <span class="arrow">▼</span>
+                        </button>
+                    
+                        <form method="POST" action="{{ url_for('sell', position_id=trade.id) }}" class="sell-form" id="sell-form-{{ trade.id }}" style="display:none;">
+                            <div class="sell-form-inner">
+                                <label>Shares to sell:</label>
+                                <input type="number" name="sell_shares" step="0.0001" max="{{ trade.shares }}" value="{{ trade.shares }}" required>
+                                <label>Sell price (CHF):</label>
+                                <input type="number" name="sell_price" step="0.01" id="sell_price_{{ trade.id }}" required>
+                                <button type="submit">Confirm Sell</button>
+                                <button 
+                                type="button" 
+                                class="cancel-sell-btn" 
+                                data-id="{{ trade.id }}" 
+                                onclick="closeSellFromButton(this)">
+                                Cancel
+                            </button>
+                            
+                            </div>
+                        </form>
+                    </td>
+                    <td>
+                        <button 
+                        type="button" 
+                        class="buy-more-btn"
+                        onclick="prefillBuyForm('{{ trade.symbol }}', '{{ trade.current_price }}')">
+                        Buy More
+                    </button>
+                    
+                    </td>
+                </tr>
+                {% endfor %}
+            </table>
+            {% if current_user.is_authenticated %}
+                <h3 style="margin-top: 30px;">➕ Add Cash</h3>
+                <form method="POST" action="{{ url_for('add_cash') }}">
+                    <input type="number" step="0.01" name="cash_amount" placeholder="Amount" required>
+                    <select name="cash_currency" required>
+                        <option value="CHF">CHF</option>
+                        <option value="USD">USD</option>
+                        <option value="EUR">EUR</option>
+                        <option value="GBP">GBP</option>
+                        <option value="JPY">JPY</option>
+                    </select>
+                    <button type="submit">Add Cash</button>
                 </form>
-            </li>
-        {% endfor %}
-    </ul>
-    
+            {% endif %}
+
+        {% endif %}
+
+            <h3 style="margin-top: 40px;">💼 Cash Holdings</h3>
+            <table>
+                <tr>
+                    <th>Currency</th>
+                    <th>Amount</th>
+                    <th>Exchange Rate (to CHF)</th>
+                    <th>Value in CHF</th>
+                </tr>
+                {% for cash in cash_balances %}
+                <tr>
+                    <td>{{ cash.currency }}</td>
+                    <td>{{ cash.amount }}</td>
+                    <td>{{ cash.rate }}</td>
+                    <td>{{ cash.converted }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+  
+    {% else %}
+        <div class="centered-container">
+            <h1>📊 My Portfolio Tracker</h1>
+            <div class="auth-buttons">
+                <a href="{{ url_for('login') }}" class="big-btn">Login</a>
+                <a href="{{ url_for('register') }}" class="big-btn">Register</a>
+            </div>
+        </div>
+    {% endif %}
 </body>
 </html>
