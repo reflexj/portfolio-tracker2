@@ -14,6 +14,7 @@ class Portfolio(db.Model):
     symbol = db.Column(db.String(10))
     shares = db.Column(db.Float)
     avg_cost = db.Column(db.Float)
+    currency = db.Column(db.String(10), default="CHF")
     realized_gain = db.Column(db.Float, default=0.0)
     realized_gain_percent = db.Column(db.Float, default=0.0)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)

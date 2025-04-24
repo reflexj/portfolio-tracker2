@@ -5,15 +5,27 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <div class="card-container">
-        <div class="card">
-            <h2>Register</h2>
-            <form method="POST">
-                <input type="text" name="username" placeholder="Username" required><br>
-                <input type="password" name="password" placeholder="Password" required><br>
-                <button type="submit" class="big-btn" style="width: 100%;">Register</button>
-            </form>
-            <p style="margin-top: 12px;">Already have an account? <a href="{{ url_for('login') }}">Login</a></p>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <ul class="flashes">
+            {% for category, message in messages %}
+            <li class="{{ category }}">{{ message }}</li>
+            {% endfor %}
+            </ul>
+        {% endif %}
+    {% endwith %}
+
+    <div class="center-screen">   
+        <div class="card-container">
+            <div class="card">
+                <h2>Register</h2>
+                <form method="POST">
+                    <input type="text" name="username" placeholder="Username" required><br>
+                    <input type="password" name="password" placeholder="Password" required><br>
+                    <button type="submit" class="big-btn" style="width: 100%;">Register</button>
+                </form>
+                <p style="margin-top: 12px;">Already have an account? <a href="{{ url_for('login') }}">Login</a></p>
+            </div>
         </div>
     </div>
 </body>

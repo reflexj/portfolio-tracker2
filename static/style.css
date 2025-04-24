@@ -165,12 +165,57 @@ ul.flashes {
     margin-bottom: 20px;
 }
 
-.flashes li {
-    background-color: #ff4d4d;
-    color: white;
-    padding: 12px;
-    margin-bottom: 8px;
-    border-radius: 6px;
-    font-weight: bold;
+.flashes {
+    list-style: none;
+    padding: 0;
+    margin: 10px 0;
 }
+
+.success {
+    background-color: #d4edda;
+    color: #155724;
+    padding: 10px;
+    border-left: 5px solid #28a745;
+    margin-bottom: 10px;
+    border-radius: 4px;
+}
+
+.error {
+    background-color: #f8d7da;
+    color: #721c24;
+    padding: 10px;
+    border-left: 5px solid #dc3545;
+    margin-bottom: 10px;
+    border-radius: 4px;
+}
+
+.warning {
+    background-color: #fff3cd;
+    color: #856404;
+    padding: 10px;
+    border-left: 5px solid #ffc107;
+    margin-bottom: 10px;
+    border-radius: 4px;
+}
+
+.center-screen {
+    height: 50vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.card {
+    text-align: center;
+}
+
+.card input {
+    margin-bottom: 5px;
+}
+
+.start {
+    margin-top: 150px;
+    text-align: center;
+}
+
 
